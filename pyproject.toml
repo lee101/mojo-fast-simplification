@@ -1,0 +1,23 @@
+[project]
+name = "mojo-fast-simplification"
+version = "0.1.0"
+description = "Quadric-error mesh simplification kernels in Mojo"
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+authors = [{ name = "Lee Penkman", email = "leepenkman@gmail.com" }]
+dependencies = ["numpy"]
+
+[project.optional-dependencies]
+dev = ["pytest", "fast-simplification==0.1.13"]
+pyvista = ["pyvista"]
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+package-dir = { "" = "python" }
+
+[tool.setuptools.packages.find]
+where = ["python"]
