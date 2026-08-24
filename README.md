@@ -130,26 +130,26 @@ field without asking the simplifier to preserve its discontinuities.
 ## Benchmarks
 
 Run only through `pixi run bench`; the task holds a machine-wide flock. These
-are real median-of-three measurements from 2026-07-29 on an Intel Xeon
+are real median-of-three measurements from 2026-08-24 on an Intel Xeon
 E5-2697 v4 at 2.30 GHz, Linux x86_64, Python 3.13.14, Mojo
-1.0.0b3.dev2026072406, and upstream fast-simplification 0.1.13.
+1.1.0.dev2026081105, and upstream fast-simplification 0.1.13.
 
 The ratio is upstream time divided by Mojo time, so values below `1.00x` mean
 Mojo is slower.
 
 | case | Mojo | upstream | upstream / Mojo |
 |---|---:|---:|---:|
-| simplify 5,000 faces to 50% | 3.59 ms | 2.93 ms | 0.82x |
-| simplify 20,000 faces to 25% | 24.60 ms | 14.32 ms | 0.58x |
-| simplify 20,000 faces to 5% | 32.45 ms | 17.11 ms | 0.53x |
-| attribute-preserving 5,000 faces to 10% | 6.84 ms | 7.48 ms | 1.09x |
-| replay 5,000-face collapse history | 733.5 us | 3.43 ms | 4.68x |
+| simplify 5,000 faces to 50% | 3.64 ms | 3.10 ms | 0.85x |
+| simplify 20,000 faces to 25% | 26.29 ms | 14.81 ms | 0.56x |
+| simplify 20,000 faces to 5% | 35.17 ms | 17.75 ms | 0.50x |
+| attribute-preserving 5,000 faces to 10% | 7.23 ms | 8.30 ms | 1.15x |
+| replay 5,000-face collapse history | 754.2 us | 3.81 ms | 5.05x |
 
 The upstream attribute baseline uses its documented collapse-history replay
 and correspondence mapping, followed by a NumPy group mean. Upstream has no
-attribute-aware edge-error parameter. Results are mixed: Mojo is 1.09 times
-faster for the attribute-preserving case and 4.68 times faster for replay.
-Upstream is 1.22 to 1.89 times faster for the ordinary simplification cases.
+attribute-aware edge-error parameter. Results are mixed: Mojo is 1.15 times
+faster for the attribute-preserving case and 5.05 times faster for replay.
+Upstream is 1.18 to 2.00 times faster for the ordinary simplification cases.
 
 ## Verification
 

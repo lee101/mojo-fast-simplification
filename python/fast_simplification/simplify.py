@@ -47,7 +47,9 @@ def _mesh_arrays(points, triangles) -> tuple[np.ndarray, np.ndarray]:
     if not np.issubdtype(faces.dtype, np.integer):
         raise TypeError("``triangles`` array must contain integer indices")
     if faces.size:
-        if faces.min() < 0 or faces.max() >= len(points_array):
+        face_min = faces.min()
+        face_max = faces.max()
+        if face_min < 0 or face_max >= len(points_array):
             raise ValueError("triangle index is outside the points array")
         if np.any(
             (faces[:, 0] == faces[:, 1])
@@ -56,7 +58,7 @@ def _mesh_arrays(points, triangles) -> tuple[np.ndarray, np.ndarray]:
         ):
             raise ValueError("triangles must contain three distinct vertex indices")
     int32 = np.iinfo(np.int32)
-    if faces.size and (faces.min() < int32.min or faces.max() > int32.max):
+    if faces.size and (face_min < int32.min or face_max > int32.max):
         raise ValueError("triangle index cannot be represented as int32")
     faces = np.array(faces, dtype=np.int32, order="C", copy=True)
     return points_array, faces
