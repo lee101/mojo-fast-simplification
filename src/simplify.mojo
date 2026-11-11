@@ -61,14 +61,16 @@ struct V3(Copyable, Movable, ImplicitlyCopyable, Deinitable):
 
 @always_inline
 def load_v(points: FPtr, i: Int) -> V3:
-    return V3(points[3 * i], points[3 * i + 1], points[3 * i + 2])
+    var base = 3 * i
+    return V3(points.unsafe_load(base), points.unsafe_load(base + 1), points.unsafe_load(base + 2))
 
 
 @always_inline
 def store_v(points: FPtr, i: Int, value: V3):
-    points[3 * i] = value.x
-    points[3 * i + 1] = value.y
-    points[3 * i + 2] = value.z
+    var base = 3 * i
+    points.unsafe_store(base, value.x)
+    points.unsafe_store(base + 1, value.y)
+    points.unsafe_store(base + 2, value.z)
 
 
 @always_inline
@@ -109,17 +111,19 @@ def determinant(
 
 
 @always_inline
-def qvalue(q: FPtr, u: Int, v: Int, p: V3) -> Float64:
-    var q0 = q[10 * u] + q[10 * v]
-    var q1 = q[10 * u + 1] + q[10 * v + 1]
-    var q2 = q[10 * u + 2] + q[10 * v + 2]
-    var q3 = q[10 * u + 3] + q[10 * v + 3]
-    var q4 = q[10 * u + 4] + q[10 * v + 4]
-    var q5 = q[10 * u + 5] + q[10 * v + 5]
-    var q6 = q[10 * u + 6] + q[10 * v + 6]
-    var q7 = q[10 * u + 7] + q[10 * v + 7]
-    var q8 = q[10 * u + 8] + q[10 * v + 8]
-    var q9 = q[10 * u + 9] + q[10 * v + 9]
+def plane_error(
+    q0: Float64,
+    q1: Float64,
+    q2: Float64,
+    q3: Float64,
+    q4: Float64,
+    q5: Float64,
+    q6: Float64,
+    q7: Float64,
+    q8: Float64,
+    q9: Float64,
+    p: V3,
+) -> Float64:
     return (
         q0 * p.x * p.x
         + 2.0 * q1 * p.x * p.y
@@ -141,39 +145,33 @@ def candidate(points: FPtr, q: FPtr, border: IPtr, u: Int, v: Int) -> Tuple[V3, 
     var midpoint = (p0 + p1) * 0.5
     var position = midpoint
     var err = 0.0
+    # The summed quadric is reused by every evaluation below, so load it once.
+    var ub = 10 * u
+    var vb = 10 * v
+    var q0 = q[ub] + q[vb]
+    var q1 = q[ub + 1] + q[vb + 1]
+    var q2 = q[ub + 2] + q[vb + 2]
+    var q3 = q[ub + 3] + q[vb + 3]
+    var q4 = q[ub + 4] + q[vb + 4]
+    var q5 = q[ub + 5] + q[vb + 5]
+    var q6 = q[ub + 6] + q[vb + 6]
+    var q7 = q[ub + 7] + q[vb + 7]
+    var q8 = q[ub + 8] + q[vb + 8]
+    var q9 = q[ub + 9] + q[vb + 9]
+    var det = 0.0
     if border[u] == 0 or border[v] == 0:
-        var q0 = q[10 * u] + q[10 * v]
-        var q1 = q[10 * u + 1] + q[10 * v + 1]
-        var q2 = q[10 * u + 2] + q[10 * v + 2]
-        var q3 = q[10 * u + 3] + q[10 * v + 3]
-        var q4 = q[10 * u + 4] + q[10 * v + 4]
-        var q5 = q[10 * u + 5] + q[10 * v + 5]
-        var q6 = q[10 * u + 6] + q[10 * v + 6]
-        var q7 = q[10 * u + 7] + q[10 * v + 7]
-        var q8 = q[10 * u + 8] + q[10 * v + 8]
-        var det = determinant(q0, q1, q2, q1, q4, q5, q2, q5, q7)
-        if abs(det) > 1.0e-15:
-            position = V3(
-                -determinant(q1, q2, q3, q4, q5, q6, q5, q7, q8) / det,
-                determinant(q0, q2, q3, q1, q5, q6, q2, q7, q8) / det,
-                -determinant(q0, q1, q3, q1, q4, q6, q2, q5, q8) / det,
-            )
-            err = qvalue(q, u, v, position)
-        else:
-            var error0 = qvalue(q, u, v, p0)
-            var error1 = qvalue(q, u, v, p1)
-            var error_mid = qvalue(q, u, v, midpoint)
-            err = error_mid
-            if error0 <= error1 and error0 <= error_mid:
-                position = p0
-                err = error0
-            elif error1 <= error_mid:
-                position = p1
-                err = error1
+        det = determinant(q0, q1, q2, q1, q4, q5, q2, q5, q7)
+    if abs(det) > 1.0e-15:
+        position = V3(
+            -determinant(q1, q2, q3, q4, q5, q6, q5, q7, q8) / det,
+            determinant(q0, q2, q3, q1, q5, q6, q2, q7, q8) / det,
+            -determinant(q0, q1, q3, q1, q4, q6, q2, q5, q8) / det,
+        )
+        err = plane_error(q0, q1, q2, q3, q4, q5, q6, q7, q8, q9, position)
     else:
-        var error0 = qvalue(q, u, v, p0)
-        var error1 = qvalue(q, u, v, p1)
-        var error_mid = qvalue(q, u, v, midpoint)
+        var error0 = plane_error(q0, q1, q2, q3, q4, q5, q6, q7, q8, q9, p0)
+        var error1 = plane_error(q0, q1, q2, q3, q4, q5, q6, q7, q8, q9, p1)
+        var error_mid = plane_error(q0, q1, q2, q3, q4, q5, q6, q7, q8, q9, midpoint)
         err = error_mid
         if error0 <= error1 and error0 <= error_mid:
             position = p0
@@ -229,9 +227,12 @@ def total_error(
 
 @always_inline
 def heap_less(errors: FPtr, edges: UPtr, a: Int, b: Int) -> Bool:
-    if errors[a] != errors[b]:
-        return errors[a] < errors[b]
-    return edges[a] < edges[b]
+    # Ties are rare, so read the tie-break key only when the errors are equal.
+    var error_a = errors.unsafe_load(a)
+    var error_b = errors.unsafe_load(b)
+    if error_a != error_b:
+        return error_a < error_b
+    return edges.unsafe_load(a) < edges.unsafe_load(b)
 
 
 @always_inline
@@ -311,10 +312,11 @@ def heap_pop(
 
 @always_inline
 def face_contains(faces: JPtr, face: Int, vertex: Int) -> Bool:
+    var base = 3 * face
     return (
-        Int(faces[3 * face]) == vertex
-        or Int(faces[3 * face + 1]) == vertex
-        or Int(faces[3 * face + 2]) == vertex
+        Int(faces.unsafe_load(base)) == vertex
+        or Int(faces.unsafe_load(base + 1)) == vertex
+        or Int(faces.unsafe_load(base + 2)) == vertex
     )
 
 
@@ -351,6 +353,7 @@ def collapse_valid(
         return False
 
     var node = Int(head[u])
+    var common = 0
     while node >= 0:
         var face = node // 3
         if face_alive[face] != 0:
@@ -359,7 +362,6 @@ def collapse_valid(
                 if w != u:
                     marks[w] = Int64(stamp)
         node = Int(next_ref[node])
-    var common = 0
     node = Int(head[v])
     while node >= 0:
         var face = node // 3
