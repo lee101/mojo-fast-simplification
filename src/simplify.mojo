@@ -138,6 +138,51 @@ def plane_error(
     )
 
 
+def face_start(
+    faces: JPtr,
+    face_alive: IPtr,
+    head: IPtr,
+    next_ref: IPtr,
+    q: FPtr,
+    points: FPtr,
+    face_count: Int,
+):
+    # Face linking, per-face alive flags, and quadric-plane accumulation in one
+    # traversal of `faces`. Corners are visited in the original order, so the
+    # incidence lists and the order of the quadric additions are unchanged.
+    comptime W = simd_width_of[DType.float64]()
+    var one = SIMD[DType.int64, W](1)
+    var i = 0
+    while i + W <= face_count:
+        face_alive.store(i, one)
+        i += W
+    while i < face_count:
+        face_alive[i] = 1
+        i += 1
+    for face in range(face_count):
+        var f = 3 * face
+        var i0 = Int(faces.unsafe_load(f))
+        var i1 = Int(faces.unsafe_load(f + 1))
+        var i2 = Int(faces.unsafe_load(f + 2))
+        next_ref[f] = head[i0]
+        head[i0] = Int64(f)
+        next_ref[f + 1] = head[i1]
+        head[i1] = Int64(f + 1)
+        next_ref[f + 2] = head[i2]
+        head[i2] = Int64(f + 2)
+        var a = load_v(points, i0)
+        var b = load_v(points, i1)
+        var c = load_v(points, i2)
+        var normal = (b - a).cross(c - a)
+        var length = sqrt(normal.squared_norm())
+        if length > 1.0e-30:
+            normal = normal * (1.0 / length)
+            var d = -normal.dot(a)
+            add_plane(q, i0, normal.x, normal.y, normal.z, d)
+            add_plane(q, i1, normal.x, normal.y, normal.z, d)
+            add_plane(q, i2, normal.x, normal.y, normal.z, d)
+
+
 @always_inline
 def candidate(points: FPtr, q: FPtr, border: IPtr, u: Int, v: Int) -> Tuple[V3, Float64, Float64]:
     var p0 = load_v(points, u)
@@ -533,23 +578,7 @@ def simplify_core(
         while j < 10:
             q[10 * i + j] = 0.0
             j += 1
-    for face in range(face_count):
-        face_alive[face] = 1
-        for j in range(3):
-            var vertex = Int(faces[3 * face + j])
-            var node = 3 * face + j
-            next_ref[node] = head[vertex]
-            head[vertex] = Int64(node)
-        var a = load_v(points, Int(faces[3 * face]))
-        var b = load_v(points, Int(faces[3 * face + 1]))
-        var c = load_v(points, Int(faces[3 * face + 2]))
-        var normal = (b - a).cross(c - a)
-        var length = sqrt(normal.squared_norm())
-        if length > 1.0e-30:
-            normal = normal * (1.0 / length)
-            var d = -normal.dot(a)
-            for j in range(3):
-                add_plane(q, Int(faces[3 * face + j]), normal.x, normal.y, normal.z, d)
+    face_start(faces, face_alive, head, next_ref, q, points, face_count)
 
     for u in range(vertex_count):
         var marker = -vertex_count - u - 1

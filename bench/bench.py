@@ -58,15 +58,27 @@ def torus(nu: int, nv: int):
     return points, np.asarray(faces, dtype=np.int32)
 
 
+def _digest(value) -> float:
+    """Cheap checksum so a fast-but-wrong kernel cannot look fast."""
+    arrays = value if isinstance(value, tuple) else (value,)
+    total = 0.0
+    for array in arrays:
+        flat = np.asarray(array).ravel()
+        total += float(flat[0]) + float(flat[-1]) + float(len(flat))
+    return total
+
+
 def measured(function, repeat: int = 3) -> float:
-    function()
+    reference = _digest(function())
     samples = []
     gc.disable()
     try:
         for _ in range(repeat):
             start = time.perf_counter()
-            function()
+            result = function()
             samples.append(time.perf_counter() - start)
+            if _digest(result) != reference:
+                raise RuntimeError("benchmark call is not deterministic")
     finally:
         gc.enable()
     return statistics.median(samples)
