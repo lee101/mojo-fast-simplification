@@ -10,7 +10,7 @@ This port prioritizes geometric correctness, stable topology, and vertex
 attribute preservation. The optimized Mojo paths are competitive with the
 mature upstream C++ implementation on the smaller simplification cases and
 substantially faster for collapse replay; the largest decimation cases remain
-slower.
+slower, and the 20,000-face cases are the slowest side of the comparison.
 
 ## Coverage
 
@@ -153,9 +153,10 @@ reported 4984 MiB free at the first check and 5294 MiB at the second, both
 above the 4000 MiB floor. The phase was therefore not skipped for memory
 reasons; it stopped on the flops-per-byte gate.
 
-Because no GPU code was added, there are no GPU tests to skip on a CPU-only
-host, and the CPU path, its tests, and the benchmark timings are unchanged from
-the numbers above.
+No GPU code was added. The flop and byte counts above were counted by reading
+the current kernel in `src/simplify.mojo`. The host check above was re-run
+during verification on 2026-11-11 (same GPU, 5294 MiB free). There are no GPU
+timings to report, because no GPU kernel exists.
 
 Attribute values are linearly propagated at the chosen contraction position.
 Their weights also contribute to edge priority; a zero weight propagates a
@@ -163,27 +164,42 @@ field without asking the simplifier to preserve its discontinuities.
 
 ## Benchmarks
 
-Run only through `pixi run bench`; the task holds a machine-wide flock. These
-are real median-of-three measurements from 2026-08-24 on an Intel Xeon
-E5-2697 v4 at 2.30 GHz, Linux x86_64, Python 3.13.14, Mojo
-1.1.0.dev2026081105, and upstream fast-simplification 0.1.13.
+Run only through `pixi run bench`; the task holds a machine-wide flock, shared
+with other checkouts on the host, so a run here can block behind another
+project's benchmark.
+
+These are median-of-five measurements from `bench/bench.py`, taken on
+2026-11-11 on an Intel Xeon E5-2697 v4 at 2.30 GHz, Linux x86_64, Python
+3.13.14, Mojo 1.2.0.dev2026092605, and upstream fast-simplification 0.1.13. Each
+figure is the median of the per-run median-of-three produced by five runs.
 
 The ratio is upstream time divided by Mojo time, so values below `1.00x` mean
 Mojo is slower.
 
 | case | Mojo | upstream | upstream / Mojo |
 |---|---:|---:|---:|
-| simplify 5,000 faces to 50% | 3.64 ms | 3.10 ms | 0.85x |
-| simplify 20,000 faces to 25% | 26.29 ms | 14.81 ms | 0.56x |
-| simplify 20,000 faces to 5% | 35.17 ms | 17.75 ms | 0.50x |
-| attribute-preserving 5,000 faces to 10% | 7.23 ms | 8.30 ms | 1.15x |
-| replay 5,000-face collapse history | 754.2 us | 3.81 ms | 5.05x |
+| simplify 5,000 faces to 50% | 4.16 ms | 3.52 ms | 0.85x |
+| simplify 20,000 faces to 25% | 27.00 ms | 15.33 ms | 0.57x |
+| simplify 20,000 faces to 5% | 34.96 ms | 17.96 ms | 0.51x |
+| attribute-preserving 5,000 faces to 10% | 7.30 ms | 8.09 ms | 1.11x |
+| replay 5,000-face collapse history | 790.5 us | 3.83 ms | 4.85x |
+
+Run-to-run spread on this shared host was 3.56-4.44 ms (Mojo) and 2.93-3.80 ms
+(upstream) for the 5,000-face case, and 26.70-33.80 ms (Mojo) for 20,000 faces
+to 25%.
 
 The upstream attribute baseline uses its documented collapse-history replay
 and correspondence mapping, followed by a NumPy group mean. Upstream has no
-attribute-aware edge-error parameter. Results are mixed: Mojo is 1.15 times
-faster for the attribute-preserving case and 5.05 times faster for replay.
-Upstream is 1.18 to 2.00 times faster for the ordinary simplification cases.
+attribute-aware edge-error pointer parameter, and its `simplify` has no
+`attributes` keyword, so there is no upstream part of that comparison that
+carries per-vertex attributes through decimation. Caveat: the Mojo side passes
+`attribute_weights=1.0`, which changes which collapses are chosen; its collapse
+history differs from the unweighted one on the same mesh, so the two sides of
+that row decimate with different priorities. Both sides return the same face
+count (498).
+Results are mixed: Mojo is 1.11 times faster for the attribute-preserving case
+and 4.85 times faster for replay. Upstream is 1.18 to 1.96 times faster for the
+ordinary simplification cases.
 
 ## Verification
 
