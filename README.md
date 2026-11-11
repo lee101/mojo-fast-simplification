@@ -116,12 +116,46 @@ The final pass compacts referenced vertices and remaps faces.
 Quadric initialization and merge, attribute-error, interpolation, and
 attribute-compaction loops use native-width `float64` SIMD blocks plus scalar
 remainder loops.
-There is no CPU thread-pool or GPU path: the dominant heap/topology collapse
-sequence is dependent and irregular, while the independent initialization and
-compaction passes are memory-bound or scatter-heavy and did not amortize thread
-launch overhead. No kernel combines roughly 2 flops per byte with enough
-independent work to justify device transfers, so adding a GPU path would lose
-and was intentionally skipped.
+There is no CPU thread-pool and no GPU path; see *GPU phase* below for the
+measurements behind that decision.
+
+## GPU phase
+
+CPU only: memory-bound. There is no GPU kernel in this port, and none is
+planned at the current kernel shapes.
+
+The gate for this phase is roughly 2 flops per byte for a kernel to be a GPU
+candidate. The flop and byte counts below were taken by reading each
+expression in `src/simplify.mojo` and counting every multiply, add, subtract,
+divide, and compare on the element's own data; bytes are the distinct bytes the
+element must touch, counting read-modify-write quadric traffic once as read.
+
+| kernel | flops per element | bytes per element | flops / byte |
+|---|---:|---:|---:|
+| `candidate` (QEM evaluate + optimal position) | ~120 | 224 | 0.54 |
+| `candidate`, counting only the 2x10 quadric block it must read | ~120 | 160 | 0.75 |
+| `face_start` (normal, plane, 3x quadric accumulate) | ~30 | 564 | 0.05 |
+| `total_error` attribute penalty | 3 | 24 | 0.13 |
+| quadric merge / attribute interpolation / compaction | <=6 | 16-80 | <=0.4 |
+
+`candidate` is the most compute-dense kernel and it is still roughly three to
+four times below the threshold: about 120 flops of contraction evaluation are
+fed by two 160-byte quadrics, and the arithmetic finishes well before the
+operands arrive from memory. The remaining
+passes are outright memory-bound, so a device copy in and out would cost more
+than the compute it replaces. The dominant collapse loop is also a dependent
+sequence of heap pops, link-condition counts, and relinks, which a
+per-element kernel cannot cover in one launch.
+
+Host check at the time of this phase (2026-11-11, NVIDIA GeForce RTX 5090,
+32607 MiB total): `nvidia-smi --query-gpu=memory.free --format=csv,noheader`
+reported 4984 MiB free at the first check and 5294 MiB at the second, both
+above the 4000 MiB floor. The phase was therefore not skipped for memory
+reasons; it stopped on the flops-per-byte gate.
+
+Because no GPU code was added, there are no GPU tests to skip on a CPU-only
+host, and the CPU path, its tests, and the benchmark timings are unchanged from
+the numbers above.
 
 Attribute values are linearly propagated at the chosen contraction position.
 Their weights also contribute to edge priority; a zero weight propagates a
