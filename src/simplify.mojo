@@ -26,7 +26,7 @@ def up(address: Int) -> UPtr:
     return UPtr(unsafe_from_address=address)
 
 
-struct V3(Copyable, Movable, ImplicitlyCopyable, ImplicitlyDeletable):
+struct V3(Copyable, Movable, ImplicitlyCopyable, Deinitable):
     var x: Float64
     var y: Float64
     var z: Float64
@@ -140,7 +140,7 @@ def candidate(points: FPtr, q: FPtr, border: IPtr, u: Int, v: Int) -> Tuple[V3, 
     var p1 = load_v(points, v)
     var midpoint = (p0 + p1) * 0.5
     var position = midpoint
-    var error = 0.0
+    var err = 0.0
     if border[u] == 0 or border[v] == 0:
         var q0 = q[10 * u] + q[10 * v]
         var q1 = q[10 * u + 1] + q[10 * v + 1]
@@ -158,29 +158,29 @@ def candidate(points: FPtr, q: FPtr, border: IPtr, u: Int, v: Int) -> Tuple[V3, 
                 determinant(q0, q2, q3, q1, q5, q6, q2, q7, q8) / det,
                 -determinant(q0, q1, q3, q1, q4, q6, q2, q5, q8) / det,
             )
-            error = qvalue(q, u, v, position)
+            err = qvalue(q, u, v, position)
         else:
             var error0 = qvalue(q, u, v, p0)
             var error1 = qvalue(q, u, v, p1)
             var error_mid = qvalue(q, u, v, midpoint)
-            error = error_mid
+            err = error_mid
             if error0 <= error1 and error0 <= error_mid:
                 position = p0
-                error = error0
+                err = error0
             elif error1 <= error_mid:
                 position = p1
-                error = error1
+                err = error1
     else:
         var error0 = qvalue(q, u, v, p0)
         var error1 = qvalue(q, u, v, p1)
         var error_mid = qvalue(q, u, v, midpoint)
-        error = error_mid
+        err = error_mid
         if error0 <= error1 and error0 <= error_mid:
             position = p0
-            error = error0
+            err = error0
         elif error1 <= error_mid:
             position = p1
-            error = error1
+            err = error1
     var edge = p1 - p0
     var denom = edge.squared_norm()
     var blend = 0.5
@@ -190,7 +190,7 @@ def candidate(points: FPtr, q: FPtr, border: IPtr, u: Int, v: Int) -> Tuple[V3, 
             blend = 0.0
         elif blend > 1.0:
             blend = 1.0
-    return (position, max(error, 0.0), blend)
+    return (position, max(err, 0.0), blend)
 
 
 @always_inline
@@ -204,17 +204,17 @@ def total_error(
     v: Int,
     attr_dim: Int,
 ) -> Float64:
-    var _, error, _ = candidate(points, q, border, u, v)
+    var _, err, _ = candidate(points, q, border, u, v)
     comptime W = simd_width_of[DType.float64]()
     var k = 0
     while k + W <= attr_dim:
-        var delta = attrs.load[width=W](u * attr_dim + k) - attrs.load[width=W](
+        var delta = attrs.unsafe_load[width=W](u * attr_dim + k) - attrs.unsafe_load[width=W](
             v * attr_dim + k
         )
-        error += (
+        err += (
             0.5
             * (
-                weights.load[width=W](k)
+                weights.unsafe_load[width=W](k)
                 * delta
                 * delta
             ).reduce_add()
@@ -222,9 +222,9 @@ def total_error(
         k += W
     while k < attr_dim:
         var delta = attrs[u * attr_dim + k] - attrs[v * attr_dim + k]
-        error += 0.5 * weights[k] * delta * delta
+        err += 0.5 * weights[k] * delta * delta
         k += 1
-    return error
+    return err
 
 
 @always_inline
@@ -255,7 +255,7 @@ def heap_push(
     version_pairs: UPtr,
     size: Int,
     capacity: Int,
-    error: Float64,
+    err: Float64,
     u: Int,
     v: Int,
     version_u: Int,
@@ -265,7 +265,7 @@ def heap_push(
         return size
     var new_size = size
     var pos = new_size
-    errors[pos] = error
+    errors[pos] = err
     edges[pos] = (UInt64(u) << 32) | UInt64(v)
     version_pairs[pos] = (UInt64(version_u) << 32) | UInt64(version_v)
     new_size += 1
@@ -287,7 +287,7 @@ def heap_pop(
     var v = Int(edge & UInt64(0xFFFFFFFF))
     var version_u = Int(versions >> 32)
     var version_v = Int(versions & UInt64(0xFFFFFFFF))
-    var error = errors[0]
+    var err = errors[0]
     var new_size = size - 1
     if new_size > 0:
         errors[0] = errors[new_size]
@@ -306,7 +306,7 @@ def heap_pop(
                 break
             heap_swap(errors, edges, version_pairs, child, pos)
             pos = child
-    return (new_size, u, v, version_u, version_v, error)
+    return (new_size, u, v, version_u, version_v, err)
 
 
 @always_inline
@@ -450,11 +450,11 @@ def rebuild_heap(
                         and Int(marks[v]) != marker
                     ):
                         marks[v] = Int64(marker)
-                        var error = total_error(
+                        var err = total_error(
                             points, attrs, weights, q, border, u, v, attr_dim
                         )
                         if size < capacity:
-                            heap_errors[size] = error
+                            heap_errors[size] = err
                             heap_edges[size] = (UInt64(u) << 32) | UInt64(v)
                             heap_versions[size] = (
                                 (UInt64(versions[u]) << 32)
@@ -627,8 +627,8 @@ def simplify_core(
         store_v(points, u, position)
         var k = 0
         while k + W <= attr_dim:
-            var attr_u = attrs.load[width=W](u * attr_dim + k)
-            var attr_v = attrs.load[width=W](v * attr_dim + k)
+            var attr_u = attrs.unsafe_load[width=W](u * attr_dim + k)
+            var attr_v = attrs.unsafe_load[width=W](v * attr_dim + k)
             attrs.store(
                 u * attr_dim + k,
                 (1.0 - blend) * attr_u + blend * attr_v,
@@ -644,7 +644,7 @@ def simplify_core(
         while k + W <= 10:
             q.store(
                 10 * u + k,
-                q.load[width=W](10 * u + k) + q.load[width=W](10 * v + k),
+                q.unsafe_load[width=W](10 * u + k) + q.unsafe_load[width=W](10 * v + k),
             )
             k += W
         while k < 10:
@@ -705,7 +705,7 @@ def simplify_core(
                             marks[w] = Int64(stamp)
                             var a = min(u, w)
                             var b = max(u, w)
-                            var error = total_error(
+                            var err = total_error(
                                 points, attrs, weights, q, border, a, b, attr_dim
                             )
                             heap_size = heap_push(
@@ -714,7 +714,7 @@ def simplify_core(
                                 heap_versions,
                                 heap_size,
                                 heap_capacity,
-                                error,
+                                err,
                                 a,
                                 b,
                                 Int(versions[a]),
@@ -736,7 +736,7 @@ def simplify_core(
                 while k + W <= attr_dim:
                     attrs.store(
                         compact_vertices * attr_dim + k,
-                        attrs.load[width=W](i * attr_dim + k),
+                        attrs.unsafe_load[width=W](i * attr_dim + k),
                     )
                     k += W
                 while k < attr_dim:
@@ -842,7 +842,7 @@ def replay_core(
         while k + W <= 10:
             q.store(
                 10 * u + k,
-                q.load[width=W](10 * u + k) + q.load[width=W](10 * v + k),
+                q.unsafe_load[width=W](10 * u + k) + q.unsafe_load[width=W](10 * v + k),
             )
             k += W
         while k < 10:
